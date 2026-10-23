@@ -1,0 +1,7 @@
+# Arquivos gerados pela compilação do PintOS
+/src/*/build/
+
+# Arquivos temporários
+*.o
+*.pyc
+__pycache__/
