@@ -20,11 +20,22 @@
 /* Number of timer ticks since OS booted. */
 static int64_t ticks;
 
+/* ==========AlarmClock========== */
+/* Sleeping threads sorted by their next wake-up tick. */
+static struct list sleeping_list;
+/* ============================== */
+
 /* Number of loops per timer tick.
    Initialized by timer_calibrate(). */
 static unsigned loops_per_tick;
 
 static intr_handler_func timer_interrupt;
+
+/* ==========AlarmClock========== */
+/* Compara o tempo de despertar de duas threads. */
+static bool wake_before (const struct list_elem *a, const struct list_elem *b, void *aux);
+/* ============================== */
+
 static bool too_many_loops (unsigned loops);
 static void busy_wait (int64_t loops);
 static void real_time_sleep (int64_t num, int32_t denom);
@@ -36,6 +47,11 @@ void
 timer_init (void) 
 {
   pit_configure_channel (0, 2, TIMER_FREQ);
+
+  /* ==========AlarmClock========== */
+  list_init (&sleeping_list);
+  /* ============================== */
+  
   intr_register_ext (0x20, timer_interrupt, "8254 Timer");
 }
 
@@ -84,17 +100,30 @@ timer_elapsed (int64_t then)
   return timer_ticks () - then;
 }
 
-/* Sleeps for approximately TICKS timer ticks.  Interrupts must
-   be turned on. */
+/* ==========AlarmClock========== */
 void
-timer_sleep (int64_t ticks) 
+timer_sleep (int64_t sleep_ticks)
 {
-  int64_t start = timer_ticks ();
+  enum intr_level old_level;
+  struct thread *cur;
 
   ASSERT (intr_get_level () == INTR_ON);
-  while (timer_elapsed (start) < ticks) 
-    thread_yield ();
+
+  if (sleep_ticks <= 0)
+    return;
+
+  old_level = intr_disable ();
+
+  cur = thread_current ();
+  cur->wake_tick = ticks + sleep_ticks;
+
+  list_insert_ordered (&sleeping_list, &cur->sleep_elem, wake_before,NULL);
+
+  thread_block ();
+
+  intr_set_level (old_level);
 }
+/* ============================== */
 
 /* Sleeps for approximately MS milliseconds.  Interrupts must be
    turned on. */
@@ -166,11 +195,38 @@ timer_print_stats (void)
   printf ("Timer: %"PRId64" ticks\n", timer_ticks ());
 }
 
+
+/* ==========AlarmClock========== */
+/* Compara os instantes de despertar de duas threads. */
+static bool
+wake_before (const struct list_elem *a, const struct list_elem *b, void *aux UNUSED)
+{
+  const struct thread *ta = list_entry (a, struct thread, sleep_elem);
+
+  const struct thread *tb = list_entry (b, struct thread, sleep_elem);
+
+  return ta->wake_tick < tb->wake_tick;
+}
+/* ============================== */
+
 /* Timer interrupt handler. */
 static void
 timer_interrupt (struct intr_frame *args UNUSED)
 {
   ticks++;
+
+  /* ==========AlarmClock========== */
+  while (!list_empty (&sleeping_list))
+    {
+      struct thread *t = list_entry (list_front (&sleeping_list), struct thread, sleep_elem);
+
+      if (t->wake_tick > ticks)
+        break;
+
+      list_pop_front (&sleeping_list);
+      thread_unblock (t);
+    }
+  /* ============================== */
   thread_tick ();
 }
 
