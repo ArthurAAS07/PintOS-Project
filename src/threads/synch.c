@@ -101,23 +101,59 @@ sema_try_down (struct semaphore *sema)
   return success;
 }
 
-/* Up or "V" operation on a semaphore.  Increments SEMA's value
-   and wakes up one thread of those waiting for SEMA, if any.
+/* ========== MLFQS ========== */
+/* Compara as prioridades de duas threads em uma lista. */
+static bool
+sema_priority_less (const struct list_elem *a,
+                    const struct list_elem *b,
+                    void *aux UNUSED)
+{
+  const struct thread *ta = list_entry (a, struct thread, elem);
 
-   This function may be called from an interrupt handler. */
+  const struct thread *tb = list_entry (b, struct thread, elem);
+
+  return ta->priority < tb->priority;
+}
+/* ============================ */
+
 void
-sema_up (struct semaphore *sema) 
+sema_up (struct semaphore *sema)
 {
   enum intr_level old_level;
+  bool should_preempt = false;
 
   ASSERT (sema != NULL);
 
   old_level = intr_disable ();
-  if (!list_empty (&sema->waiters)) 
-    thread_unblock (list_entry (list_pop_front (&sema->waiters),
-                                struct thread, elem));
+
+  if (!list_empty (&sema->waiters)) {
+      struct list_elem *e;
+      struct thread *awakened;
+
+      if (thread_mlfqs) {
+          e = list_max (&sema->waiters, sema_priority_less, NULL);
+          list_remove (e);
+        }
+      else {
+        e = list_pop_front (&sema->waiters);
+      }
+      awakened = list_entry (e, struct thread, elem);
+
+      should_preempt = thread_mlfqs && awakened->priority > thread_current ()->priority;
+
+      thread_unblock (awakened);
+    }
+
+  /* Finaliza a liberacao do semaforo antes da preempcao. */
   sema->value++;
   intr_set_level (old_level);
+
+  if (should_preempt) {
+      if (intr_context ())
+        intr_yield_on_return ();
+      else if (old_level == INTR_ON)
+        thread_yield ();
+    }
 }
 
 static void sema_test_helper (void *sema_);

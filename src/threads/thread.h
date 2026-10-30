@@ -99,6 +99,13 @@ struct thread
     struct list_elem sleep_elem;
     /* =============================== */
 
+    /* ============ MLFQS ============ */
+    /* Valor nice da thread. */
+    int nice;
+    /* Uso recente de CPU, representado em ponto fixo 17.14. */
+    int32_t recent_cpu;
+    /* =============================== */
+
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
     uint32_t *pagedir;                  /* Page directory. */
