@@ -5,32 +5,32 @@
 #include <list.h>
 #include <stdint.h>
 
-/* States in a thread's life cycle. */
+/* Estados no ciclo de vida de uma thread. */
 enum thread_status
   {
-    THREAD_RUNNING,     /* Running thread. */
-    THREAD_READY,       /* Not running but ready to run. */
-    THREAD_BLOCKED,     /* Waiting for an event to trigger. */
-    THREAD_DYING        /* About to be destroyed. */
+    THREAD_RUNNING,     /* Thread em execucao. */
+    THREAD_READY,       /* Nao esta rodando, mas pronta para executar. */
+    THREAD_BLOCKED,     /* Aguardando um evento disparar. */
+    THREAD_DYING        /* Prestes a ser destruida. */
   };
 
-/* Thread identifier type.
-   You can redefine this to whatever type you like. */
+/* Tipo identificador de thread.
+   Voce pode redefinir este tipo para o que preferir. */
 typedef int tid_t;
-#define TID_ERROR ((tid_t) -1)          /* Error value for tid_t. */
+#define TID_ERROR ((tid_t) -1)          /* Valor de erro para tid_t. */
 
-/* Thread priorities. */
-#define PRI_MIN 0                       /* Lowest priority. */
-#define PRI_DEFAULT 31                  /* Default priority. */
-#define PRI_MAX 63                      /* Highest priority. */
+/* Prioridades das threads. */
+#define PRI_MIN 0                       /* Prioridade mais baixa. */
+#define PRI_DEFAULT 31                  /* Prioridade padrao. */
+#define PRI_MAX 63                      /* Prioridade mais alta. */
 
-/* A kernel thread or user process.
+/* Uma thread de kernel ou processo de usuario.
 
-   Each thread structure is stored in its own 4 kB page.  The
-   thread structure itself sits at the very bottom of the page
-   (at offset 0).  The rest of the page is reserved for the
-   thread's kernel stack, which grows downward from the top of
-   the page (at offset 4 kB).  Here's an illustration:
+   Cada estrutura de thread e armazenada em sua propria pagina de 4 kB.
+   A estrutura da thread em si fica na base da pagina (no deslocamento 0).
+   O restante da pagina e reservado para a pilha de kernel da thread,
+   que cresce para baixo a partir do topo da pagina (em 4 kB).
+   Veja a ilustracao:
 
         4 kB +---------------------------------+
              |          kernel stack           |
@@ -54,70 +54,67 @@ typedef int tid_t;
              |              status             |
         0 kB +---------------------------------+
 
-   The upshot of this is twofold:
+   A consequencia disso tem dois aspectos:
 
-      1. First, `struct thread' must not be allowed to grow too
-         big.  If it does, then there will not be enough room for
-         the kernel stack.  Our base `struct thread' is only a
-         few bytes in size.  It probably should stay well under 1
-         kB.
+      1. Primeiro, `struct thread' nao pode crescer demais. Se crescer,
+         nao havera espaco suficiente para a pilha do kernel. Nossa
+         `struct thread' base tem apenas alguns bytes de tamanho.
+         Ela deve permanecer bem abaixo de 1 kB.
 
-      2. Second, kernel stacks must not be allowed to grow too
-         large.  If a stack overflows, it will corrupt the thread
-         state.  Thus, kernel functions should not allocate large
-         structures or arrays as non-static local variables.  Use
-         dynamic allocation with malloc() or palloc_get_page()
-         instead.
+      2. Segundo, as pilhas do kernel nao podem crescer demais. Se uma
+         pilha estourar, ela corrompera o estado da thread. Assim,
+         funcoes do kernel nao devem alocar grandes estruturas ou
+         vetores como variaveis locais nao-estaticas. Use alocacao
+         dinamica com malloc() ou palloc_get_page() em vez disso.
 
-   The first symptom of either of these problems will probably be
-   an assertion failure in thread_current(), which checks that
-   the `magic' member of the running thread's `struct thread' is
-   set to THREAD_MAGIC.  Stack overflow will normally change this
-   value, triggering the assertion. */
-/* The `elem' member has a dual purpose.  It can be an element in
-   the run queue (thread.c), or it can be an element in a
-   semaphore wait list (synch.c).  It can be used these two ways
-   only because they are mutually exclusive: only a thread in the
-   ready state is on the run queue, whereas only a thread in the
-   blocked state is on a semaphore wait list. */
+   O primeiro sintoma de qualquer um desses problemas provavelmente sera
+   uma falha de assercao em thread_current(), que verifica se o membro
+   `magic' da `struct thread' em execucao esta definido como THREAD_MAGIC.
+   O estouro de pilha normalmente altera esse valor, disparando a assercao. */
+/* O membro `elem' tem finalidade dupla. Ele pode ser um elemento na
+   fila de prontos (thread.c), ou um elemento em uma lista de espera de
+   semaforo (synch.c). Ele so pode ser usado dessas duas maneiras porque
+   sao mutuamente exclusivas: apenas uma thread no estado pronto fica na
+   fila de prontos, enquanto apenas uma thread no estado bloqueado fica
+   em uma lista de espera de semaforo. */
 struct thread
   {
-    /* Owned by thread.c. */
-    tid_t tid;                          /* Thread identifier. */
-    enum thread_status status;          /* Thread state. */
-    char name[16];                      /* Name (for debugging purposes). */
-    uint8_t *stack;                     /* Saved stack pointer. */
-    int priority;                       /* Priority. */
-    struct list_elem allelem;           /* List element for all threads list. */
+    /* Gerenciado por thread.c. */
+    tid_t tid;                          /* Identificador da thread. */
+    enum thread_status status;          /* Estado da thread. */
+    char name[16];                      /* Nome (para fins de depuracao). */
+    uint8_t *stack;                     /* Ponteiro de pilha salvo. */
+    int priority;                       /* Prioridade. */
+    struct list_elem allelem;           /* Elemento para a lista de todas as threads. */
 
-    /* Shared between thread.c and synch.c. */
-    struct list_elem elem;              /* List element. */
+    /* Compartilhado entre thread.c e synch.c. */
+    struct list_elem elem;              /* Elemento de lista. */
 
     /* ==========Alarm Clock========== */
-    /* Alarm Clock: only used while this thread is sleeping. */
+    /* Usados apenas enquanto a thread esta dormindo na sleeping_list. */
     int64_t wake_tick;
     struct list_elem sleep_elem;
     /* =============================== */
 
-    /* ============ MLFQS ============ */
-    /* Valor nice da thread. */
+    /* ========== MLFQS ========== */
+    /* Valor nice da thread (-20 a 20). */
     int nice;
     /* Uso recente de CPU, representado em ponto fixo 17.14. */
     int32_t recent_cpu;
-    /* =============================== */
+    /* =========================== */
 
 #ifdef USERPROG
-    /* Owned by userprog/process.c. */
-    uint32_t *pagedir;                  /* Page directory. */
+    /* Gerenciado por userprog/process.c. */
+    uint32_t *pagedir;                  /* Diretorio de paginas. */
 #endif
 
-    /* Owned by thread.c. */
-    unsigned magic;                     /* Detects stack overflow. */
+    /* Gerenciado por thread.c. */
+    unsigned magic;                     /* Detecta estouro de pilha. */
   };
 
-/* If false (default), use round-robin scheduler.
-   If true, use multi-level feedback queue scheduler.
-   Controlled by kernel command-line option "-o mlfqs". */
+/* Se false (padrao), usa o escalonador round-robin.
+   Se true, usa o escalonador de filas de multiplos niveis (MLFQS).
+   Controlado pela opcao de linha de comando do kernel "-o mlfqs". */
 extern bool thread_mlfqs;
 
 void thread_init (void);
@@ -139,13 +136,14 @@ const char *thread_name (void);
 void thread_exit (void) NO_RETURN;
 void thread_yield (void);
 
-/* Performs some operation on thread t, given auxiliary data AUX. */
+/* Executa alguma operacao na thread t, dado um argumento auxiliar AUX. */
 typedef void thread_action_func (struct thread *t, void *aux);
 void thread_foreach (thread_action_func *, void *);
 
 int thread_get_priority (void);
 void thread_set_priority (int);
 
+/* Funcoes do escalonador MLFQS para manipular nice, recent_cpu e load_avg. */
 int thread_get_nice (void);
 void thread_set_nice (int);
 int thread_get_recent_cpu (void);
